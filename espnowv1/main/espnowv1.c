@@ -35,7 +35,6 @@ uint8_t	localMac[6];
 
 static uint8_t example_broadcast_mac[ESP_NOW_ETH_ALEN] = { 0x30, 0xAE, 0xA4, 0x21, 0x28, 0x44 };
 uint8_t espNowNode[ESP_NOW_ETH_ALEN] = {0x30, 0xAE, 0xA4, 0x27, 0xA9, 0x48}; 
-static uint16_t s_example_espnow_seq[EXAMPLE_ESPNOW_DATA_MAX] = { 0, 0 };
 
 static void example_espnow_deinit(example_espnow_send_param_t *send_param);
 
@@ -49,7 +48,7 @@ typedef struct {
 
 
 esnowQueObject globalQue;
-long espnowTimers[2];
+long espnowTimers[3];
 example_espnow_send_param_t *send_param_var;
 
 static esp_err_t example_event_handler(void *ctx, system_event_t *event)
@@ -78,6 +77,7 @@ static void initWifi(void)
     ret = esp_wifi_set_mode( ESPNOW_WIFI_MODE );
     ret = esp_wifi_start();
     ret = esp_wifi_set_channel(CONFIG_ESPNOW_CHANNEL, 0);
+	ret = esp_wifi_set_ps(WIFI_PS_NONE);
 	ret = esp_wifi_get_mac(ESPNOW_WIFI_IF, localMac);
 	printf("\r\n[%d]\r\n", ret);
 	printf("\r\nWIFI_MODE_STA MAC Address:\t");
@@ -93,7 +93,7 @@ static void initWifi(void)
 		}
 	}
 	printf("\r\nEnabling Long range setting...[");
-	ret = esp_wifi_set_protocol(ESPNOW_WIFI_IF, WIFI_PROTOCOL_11B|WIFI_PROTOCOL_11G|WIFI_PROTOCOL_11N|WIFI_PROTOCOL_LR);
+	ret = esp_wifi_set_protocol(ESPNOW_WIFI_IF, WIFI_PROTOCOL_11B|WIFI_PROTOCOL_11G|WIFI_PROTOCOL_11N);
 	printf(esp_err_to_name(ret));
 	printf("]\r\n");
 }
@@ -121,6 +121,8 @@ static void example_espnow_recv_cb(const uint8_t *mac_addr, const uint8_t *data,
 	if(globalQue.previousSend == globalQue.currentData)
 	{
 		globalQue.isReady=1;
+		espnowTimers[1]=esp_timer_get_time()-espnowTimers[0];
+		espnowTimers[2]+=espnowTimers[1];
 	}
 }
 
@@ -149,30 +151,11 @@ int example_espnow_data_parse(uint8_t *data, uint16_t data_len, uint8_t *state, 
     return -1;
 }
 
-/* Prepare ESPNOW data to be sent. */
-void prepDataBlock(example_espnow_send_param_t *send_param)
-{
-    espNowDataBlock *buf = (espNowDataBlock *)send_param->buffer;
-    int i = 0;
-
-    assert(send_param->len >= sizeof(espNowDataBlock));
-
-    buf->type = IS_BROADCAST_ADDR(send_param->dest_mac) ? EXAMPLE_ESPNOW_DATA_BROADCAST : EXAMPLE_ESPNOW_DATA_UNICAST;
-    buf->state = send_param->state;
-    buf->seq_num = s_example_espnow_seq[buf->type]++;
-    buf->crc = 0;
-    buf->magic = send_param->magic;
-    for (i = 0; i < send_param->len - sizeof(espNowDataBlock); i++) {
-        buf->payload[i] = (uint8_t)esp_random();
-    }
-    buf->crc = crc16_le(UINT16_MAX, (uint8_t const *)buf, send_param->len);
-}
-
 static void sendESPNOWData(void *pvParameter)
 {
     int ret;
-	unsigned short int sendCount=0, maxSends=10000;
-
+	unsigned short int sendCount=0, maxSends=1000, missCnt=0;
+	long maxTimeOut = 1000000;
     printf("\r\n");
     /* Start sending ESPNOW data. */
     
@@ -180,7 +163,7 @@ static void sendESPNOWData(void *pvParameter)
     
 	while(sendCount<maxSends)
 	{
-		printf("\r\n\tCurrent sendCount\t%d", sendCount);
+		printf("\r\n\tCurrent sendCount\t%d\t", sendCount);
 		send_param_var->buffer[0] = sendCount;
 		if ((ret=esp_now_send(send_param_var->dest_mac, send_param_var->buffer, send_param_var->len)) != ESP_OK)
 		{
@@ -195,28 +178,30 @@ static void sendESPNOWData(void *pvParameter)
 			globalQue.previousSend = sendCount;
 			while(!globalQue.isReady)
 			{
-				if( (esp_timer_get_time()-espnowTimers[0])>20000)
+				espnowTimers[1]=esp_timer_get_time()-espnowTimers[0];
+				if(espnowTimers[1]>maxTimeOut)
 				{
 					globalQue.isReady=2;
 				}
-				vTaskDelay(10 / portTICK_RATE_MS);
+				//vTaskDelay(1 / portTICK_RATE_MS);
 			}
 			if(globalQue.isReady==1)
 			{
-				espnowTimers[1] = esp_timer_get_time();
-				printf("\tRound trip took\t%lu microseconds", espnowTimers[1]-espnowTimers[0]);
+				printf("RTT\t%lu microseconds", espnowTimers[1]);
 			}
 			else if(globalQue.isReady==2)
 			{
-				printf("\tTIMEOUT!");
+				missCnt++;
+				printf("TIMEOUT!");
 			}
 			globalQue.isReady=0;
 			sendCount++;
 		}
-		vTaskDelay(10 / portTICK_RATE_MS);
+		vTaskDelay(5 / portTICK_RATE_MS);
 	}
+	printf("\r\n\r\n\t\t\tAvg RTT\t%lu\tSent\t%d\tMissed\t%d\r\n", espnowTimers[2]/(maxSends-missCnt), (maxSends-missCnt), missCnt);
 	example_espnow_deinit(send_param_var);
-    vTaskDelete(NULL);
+	vTaskDelete(NULL);
 	printf("\r\n\tOut of sendESPNOWData\r\n");
 }
 
@@ -264,10 +249,8 @@ static esp_err_t example_espnow_init(void)
     send_param->len = MAX_ESPNOW_PACKET_SIZE;//CONFIG_ESPNOW_SEND_LEN;
     send_param->buffer = malloc(send_param->len);
     memcpy(send_param->dest_mac, example_broadcast_mac, ESP_NOW_ETH_ALEN);
-    prepDataBlock(send_param);
 
 	printf("\r\nESPNOW Set up complete!\r\n");
-	vTaskDelay(5000 / portTICK_RATE_MS);
 	xTaskCreate(sendESPNOWData, "sendESPNOWData", 2048, send_param, 4, NULL);
 
     return ESP_OK;
@@ -297,5 +280,6 @@ void app_main()
 	printf("\r\nSetting Up WIFI....\r\n");
     initWifi();
 	printf("\r\nWIFI Setup Complete!\r\n");
+	espnowTimers[2]=0;
     example_espnow_init();
 }
