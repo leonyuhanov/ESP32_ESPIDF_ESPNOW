@@ -64,6 +64,7 @@ static void initWifi(void)
     ret = esp_wifi_set_mode( ESPNOW_WIFI_MODE );
     ret = esp_wifi_start();
     ret = esp_wifi_set_channel(CONFIG_ESPNOW_CHANNEL, 0);
+	ret = esp_wifi_set_ps(WIFI_PS_NONE);
 	ret = esp_wifi_get_mac(ESPNOW_WIFI_IF, localMac);
 	printf("\r\n[%d]\r\n", ret);
 	printf("\r\nWIFI_MODE_STA MAC Address:\t");
@@ -79,7 +80,7 @@ static void initWifi(void)
 		}
 	}
 	printf("\r\nEnabling Long range setting...[");
-	ret = esp_wifi_set_protocol(ESPNOW_WIFI_IF, WIFI_PROTOCOL_11B|WIFI_PROTOCOL_11G|WIFI_PROTOCOL_11N|WIFI_PROTOCOL_LR);
+	ret = esp_wifi_set_protocol(ESPNOW_WIFI_IF, WIFI_PROTOCOL_11B|WIFI_PROTOCOL_11G|WIFI_PROTOCOL_11N); //WIFI_PROTOCOL_LR
 	printf(esp_err_to_name(ret));
 	printf("]\r\n");
 }
@@ -106,17 +107,16 @@ static void example_espnow_recv_cb(const uint8_t *mac_addr, const uint8_t *data,
 	}
 	
 	//send reply
-    send_param->unicast = true;
-    send_param->broadcast = false;
-    send_param->state = 0;
-    send_param->magic = esp_random();
-    send_param->count = 1;//CONFIG_ESPNOW_SEND_COUNT;
-    send_param->delay = 0;//CONFIG_ESPNOW_SEND_DELAY;
-    send_param->len = MAX_ESPNOW_PACKET_SIZE;//CONFIG_ESPNOW_SEND_LEN;
-    memcpy(send_param->dest_mac, espNowNode, ESP_NOW_ETH_ALEN);
-    memcpy(send_param->buffer, data, send_param->len);
-	
-	//prepDataBlock(send_param);
+    //send_param->unicast = true;
+    //send_param->broadcast = false;
+    //send_param->state = 0;
+    //send_param->magic = esp_random();
+    //send_param->count = 1;//CONFIG_ESPNOW_SEND_COUNT;
+    //send_param->delay = 0;//CONFIG_ESPNOW_SEND_DELAY;
+    //send_param->len = MAX_ESPNOW_PACKET_SIZE;//CONFIG_ESPNOW_SEND_LEN;
+    //memcpy(send_param->dest_mac, espNowNode, ESP_NOW_ETH_ALEN);
+    //memcpy(send_param->buffer, data, send_param->len);
+	send_param->buffer[0] = data[0];
 	if ((ret=esp_now_send(send_param->dest_mac, send_param->buffer, send_param->len)) != ESP_OK)
 	{
 		printf("\r\n\t\t");
@@ -167,7 +167,8 @@ static esp_err_t example_espnow_init(void)
     send_param->len = MAX_ESPNOW_PACKET_SIZE;//CONFIG_ESPNOW_SEND_LEN;
     send_param->buffer = malloc(send_param->len);
     memcpy(send_param->dest_mac, espNowNode, ESP_NOW_ETH_ALEN);
-    return ESP_OK;
+    
+	return ESP_OK;
 }
 
 static void example_espnow_deinit(example_espnow_send_param_t *send_param)
