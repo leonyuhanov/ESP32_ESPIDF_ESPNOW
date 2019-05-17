@@ -1,8 +1,8 @@
 /* 
 		THIS 1
-			TX Module 30:AE:A4:27:A9:48
+			TX Module 30:AE:A4:21:28:44
 		REMOTE 2
-			RX Module 30:AE:A4:21:28:44
+			RX Module 30:AE:A4:21:35:B0
 			
 */#include <stdlib.h>
 #include <time.h>
@@ -18,10 +18,11 @@
 #include "esp_log.h"
 #include "esp_system.h"
 #include "esp_now.h"
-#include "rom/ets_sys.h"
-#include "rom/crc.h"
+#include "esp32/rom/ets_sys.h"
+#include "esp32/rom/crc.h"
 #include "espnowv1.h"
 #include "esp_timer.h"
+#include "esp_private/wifi.h"
 
 #define CONFIG_ESPNOW_CHANNEL				1
 #define ESPNOW_WIFI_MODE 					WIFI_MODE_STA
@@ -33,8 +34,8 @@ unsigned char CONFIG_ESPNOW_LMK[ESP_NOW_KEY_LEN];
 static const char *TAG = "espnow_example";
 uint8_t	localMac[6];
 
-static uint8_t example_broadcast_mac[ESP_NOW_ETH_ALEN] = { 0x30, 0xAE, 0xA4, 0x21, 0x28, 0x44 };
-uint8_t espNowNode[ESP_NOW_ETH_ALEN] = {0x30, 0xAE, 0xA4, 0x27, 0xA9, 0x48}; 
+static uint8_t example_broadcast_mac[ESP_NOW_ETH_ALEN] = { 0x30, 0xAE, 0xA4, 0x21, 0x35, 0xB0 };
+uint8_t espNowNode[ESP_NOW_ETH_ALEN] = {0x30, 0xAE, 0xA4, 0x21, 0x28, 0x44}; 
 
 static void example_espnow_deinit(example_espnow_send_param_t *send_param);
 
@@ -96,6 +97,9 @@ static void initWifi(void)
 	ret = esp_wifi_set_protocol(ESPNOW_WIFI_IF, WIFI_PROTOCOL_11B|WIFI_PROTOCOL_11G|WIFI_PROTOCOL_11N);
 	printf(esp_err_to_name(ret));
 	printf("]\r\n");
+	printf("Setting High Spees Mode...[");
+	ret = esp_wifi_internal_set_fix_rate(ESPNOW_WIFI_IF, 1, WIFI_PHY_RATE_MCS7_SGI);
+	printf("%d]\r\n", ret);
 }
 
 /* ESPNOW sending or receiving callback function is called in WiFi task.
